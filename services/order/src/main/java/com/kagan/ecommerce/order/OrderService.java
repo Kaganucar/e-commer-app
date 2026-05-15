@@ -2,12 +2,18 @@ package com.kagan.ecommerce.order;
 
 import com.kagan.ecommerce.customer.CustomerClient;
 import com.kagan.ecommerce.exception.BusinessException;
+import com.kagan.ecommerce.kafka.OrderConfirmation;
+import com.kagan.ecommerce.kafka.OrderProducer;
 import com.kagan.ecommerce.orderline.OrderLineRequest;
 import com.kagan.ecommerce.orderline.OrderLineService;
 import com.kagan.ecommerce.product.ProductClient;
 import com.kagan.ecommerce.product.PurchaseRequest;
+import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 
 @Service
@@ -19,12 +25,13 @@ public class OrderService {
     private final ProductClient productClient;
     private final OrderMapper mapper;
     private final OrderLineService orderLineService;
+    private final OrderProducer orderProducer;
 
     public Integer createdOrder(OrderRequest request) {
         var customer = this.customerClient.findCustomerById(request.customerId())
                 .orElseThrow(() -> new BusinessException("Cannot create order:: No customer exists with the provided ID"));
 
-        this.productClient.purchaseProducts(request.products());
+        var purchasedProducts = this.productClient.purchaseProducts(request.products());
 
         var order = this.repository.save(mapper.toOrder(request));
 
@@ -41,7 +48,29 @@ public class OrderService {
 
         //todo start payment process
 
-        // send the order confirmation --> notification-ms (kafka)
-        return null;
+        orderProducer.sendOrderConfirmation(
+                new OrderConfirmation(
+                        request.reference(),
+                        request.amount(),
+                        request.paymentMethod(),
+                        customer,
+                        purchasedProducts
+                )
+        );
+
+        return order.getId();
+    }
+
+    public List<OrderResponse> findAll() {
+        return repository.findAll()
+                .stream()
+                .map(mapper::fromOrder)
+                .collect(Collectors.toList());
+    }
+
+    public OrderResponse findById(Integer orderId) {
+        return repository.findById(orderId)
+                .map(mapper::fromOrder)
+                .orElseThrow(() -> new EntityNotFoundException(String.format("No order found with the provided ID: %d", orderId)));
     }
 }
