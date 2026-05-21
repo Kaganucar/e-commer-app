@@ -6,6 +6,8 @@ import com.kagan.ecommerce.kafka.OrderConfirmation;
 import com.kagan.ecommerce.kafka.OrderProducer;
 import com.kagan.ecommerce.orderline.OrderLineRequest;
 import com.kagan.ecommerce.orderline.OrderLineService;
+import com.kagan.ecommerce.payment.PaymentClient;
+import com.kagan.ecommerce.payment.PaymentRequest;
 import com.kagan.ecommerce.product.ProductClient;
 import com.kagan.ecommerce.product.PurchaseRequest;
 import jakarta.persistence.EntityNotFoundException;
@@ -26,6 +28,7 @@ public class OrderService {
     private final OrderMapper mapper;
     private final OrderLineService orderLineService;
     private final OrderProducer orderProducer;
+    private final PaymentClient paymentClient;
 
     public Integer createdOrder(OrderRequest request) {
         var customer = this.customerClient.findCustomerById(request.customerId())
@@ -46,7 +49,14 @@ public class OrderService {
             );
         }
 
-        //todo start payment process
+        var paymentRequest = new PaymentRequest(
+                request.amount(),
+                request.paymentMethod(),
+                order.getId(),
+                order.getRefernce(),
+                customer
+        );
+        paymentClient.requestOrderPayment(paymentRequest);
 
         orderProducer.sendOrderConfirmation(
                 new OrderConfirmation(
